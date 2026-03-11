@@ -5,12 +5,14 @@ from supabase import create_client
 # Configurazione interfaccia
 st.set_page_config(page_title="Tony Russo Growth DB", layout="wide", initial_sidebar_state="expanded")
 
-# CSS Custom per stile professionale
+# CSS Custom per stile professionale e colori semaforici nelle selectbox
 st.markdown("""
     <style>
     .stMultiSelect div div div div { background-color: #1e293b !important; color: white !important; }
-    .stButton>button { width: 100%; background-color: #3b82f6; color: white; border-radius: 8px; border: none; padding: 10px; }
+    .stButton>button { width: 100%; background-color: #3b82f6; color: white; border-radius: 8px; border: none; padding: 10px; font-weight: bold; }
     .stButton>button:hover { background-color: #2563eb; }
+    /* Estetica generale */
+    .stApp { background-color: #0f172a; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -27,21 +29,16 @@ def get_data():
 df_raw = get_data()
 
 # --- SIDEBAR FILTRI ---
-st.sidebar.title("🎯 Filtri Avanzati")
+st.sidebar.title("🎯 Strategia & Filtri")
 
-# 1. Ricerca Testuale
 search = st.sidebar.text_input("🔍 Cerca parola chiave", "")
 
-# 2. Filtro Categoria
 categories = ["Tutte"] + sorted(df_raw['categoria'].unique().tolist())
 cat_filter = st.sidebar.selectbox("📁 Categoria", categories)
 
-# 3. Filtro Stato (Aggiornato con 'Cestinato' e 'Da valutare')
-# Di base escludiamo i cestinati per tenere pulita la vista
 stati_disponibili = ["Attivi (Escl. Cestinati)", "Da valutare", "Fattibile", "Da fare", "In progress", "Fatto", "Cestinato", "Tutti"]
 stato_filter = st.sidebar.selectbox("🚦 Stato Strategia", stati_disponibili)
 
-# 4. Filtro Tag
 all_tags = set()
 for t_str in df_raw['tag'].dropna():
     tags = [t.strip() for t in t_str.split() if t.startswith('#')]
@@ -51,7 +48,6 @@ tag_filter = st.sidebar.multiselect("🏷️ Filtra per Tag", sorted(list(all_ta
 # --- LOGICA DI FILTRAGGIO ---
 df = df_raw.copy()
 
-# Gestione filtri stato
 if stato_filter == "Attivi (Escl. Cestinati)":
     df = df[df['stato'] != "Cestinato"]
 elif stato_filter == "Tutti":
@@ -72,9 +68,8 @@ if tag_filter:
 st.title("📊 Growth Master Dashboard")
 st.caption(f"Stai visualizzando {len(df)} idee strategiche.")
 
-# Definizione stati per la tendina della tabella
-lista_stati_tabella = ["Da valutare", "Fattibile", "Da fare", "In progress", "Fatto", "Cestinato"]
-
+# Configurazione colori semaforici per lo stato
+# Streamlit permette di associare icone/colori tramite SelectboxColumn
 edited_df = st.data_editor(
     df,
     column_config={
@@ -83,8 +78,16 @@ edited_df = st.data_editor(
         "dettagli": st.column_config.Column("Esecuzione", width="large", disabled=True),
         "stato": st.column_config.SelectboxColumn(
             "Stato", 
-            options=lista_stati_tabella,
-            required=True
+            help="Cambia lo stato della strategia",
+            options=[
+                "Da valutare",
+                "Fattibile",
+                "Da fare",
+                "In progress",
+                "Fatto",
+                "Cestinato"
+            ],
+            required=True,
         ),
         "note": st.column_config.TextColumn("Note Strategiche", width="medium"),
         "tag": st.column_config.Column("Tags", disabled=True),
@@ -95,19 +98,28 @@ edited_df = st.data_editor(
     key="main_editor"
 )
 
+# --- LOGICA COLORE (Visuale solo in output se necessario, ma il data_editor usa le selectbox) ---
+# Per un tocco in più, mostriamo un riepilogo semaforico in sidebar
+st.sidebar.markdown("---")
+st.sidebar.subheader("📈 Riepilogo Status")
+counts = df_raw['stato'].value_counts()
+st.sidebar.write(f"🟢 Fatto: {counts.get('Fatto', 0)}")
+st.sidebar.write(f"🟡 In progress: {counts.get('In progress', 0)}")
+st.sidebar.write(f"🟠 Da fare: {counts.get('Da fare', 0)}")
+st.sidebar.write(f"🔵 Fattibile: {counts.get('Fattibile', 0)}")
+st.sidebar.write(f"⚪ Da valutare: {counts.get('Da valutare', 0)}")
+st.sidebar.write(f"🔴 Cestinato: {counts.get('Cestinato', 0)}")
+
 # --- SALVATAGGIO ---
 st.sidebar.markdown("---")
-if st.sidebar.button("💾 SALVA MODIFICHE"):
+if st.sidebar.button("💾 SALVA E SINCRONIZZA"):
     with st.spinner("Sincronizzazione Cloud in corso..."):
-        # Troviamo le differenze rispetto al dataframe originale per aggiornare solo il necessario
         for index, row in edited_df.iterrows():
             supabase.table("ideas").update({
                 "stato": row['stato'],
                 "note": row['note']
             }).eq("id", row['id']).execute()
             
-    st.sidebar.success("Dati sincronizzati!")
+    st.sidebar.success("Dati aggiornati!")
     st.cache_data.clear()
     st.rerun()
-
-st.sidebar.info("Tip: Le idee 'Cestinate' vengono nascoste automaticamente per aiutarti a focusare sulle strategie attive.")
